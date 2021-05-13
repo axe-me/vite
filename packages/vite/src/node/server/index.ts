@@ -51,7 +51,7 @@ import { resolveSSRExternal } from '../ssr/ssrExternal'
 import { ssrRewriteStacktrace } from '../ssr/ssrStacktrace'
 import { createMissingImporterRegisterFn } from '../optimizer/registerMissing'
 import { printServerUrls } from '../logger'
-import { resolveHostname } from '../utils'
+import { resolveHostname, getPort } from '../utils'
 import { searchForWorkspaceRoot } from './searchRoot'
 
 export interface ServerOptions {
@@ -573,27 +573,21 @@ async function startServer(
   }
 
   const options = server.config.server
-  let port = inlinePort || options.port || 3000
   const hostname = resolveHostname(options.host)
 
   const protocol = options.https ? 'https' : 'http'
   const info = server.config.logger.info
   const base = server.config.base
+  const port = await getPort(
+    inlinePort || options.port || 3000,
+    Boolean(options.strictPort),
+    server.config.logger
+  )
 
   return new Promise((resolve, reject) => {
     const onError = (e: Error & { code?: string }) => {
-      if (e.code === 'EADDRINUSE') {
-        if (options.strictPort) {
-          httpServer.removeListener('error', onError)
-          reject(new Error(`Port ${port} is already in use`))
-        } else {
-          info(`Port ${port} is in use, trying another one...`)
-          httpServer.listen(++port, hostname.host)
-        }
-      } else {
-        httpServer.removeListener('error', onError)
-        reject(e)
-      }
+      httpServer.removeListener('error', onError)
+      reject(e)
     }
 
     httpServer.on('error', onError)

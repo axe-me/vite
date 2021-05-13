@@ -13,6 +13,8 @@ import {
   DecodedSourceMap,
   RawSourceMap
 } from '@ampproject/remapping/dist/types/types'
+import { Socket } from 'net'
+import { Logger } from './logger'
 
 export function slash(p: string): string {
   return p.replace(/\\/g, '/')
@@ -500,4 +502,53 @@ export function resolveHostname(
       : host
 
   return { host, name }
+}
+
+export async function getPort(
+  port: number,
+  isStrictPort: boolean,
+  logger: Logger
+): Promise<number> {
+  const info = logger.info
+
+  return new Promise((resolve, reject) => {
+    const socket = new Socket()
+
+    const cleanSocket = () => {
+      if (socket) {
+        socket.removeAllListeners('connect')
+        socket.removeAllListeners('error')
+        socket.end()
+        socket.destroy()
+        socket.unref()
+      }
+    }
+
+    const resolvePort = () => {
+      cleanSocket()
+      resolve(port)
+    }
+
+    const rejectPort = () => {
+      cleanSocket()
+
+      if (isStrictPort) {
+        reject(new Error(`Port ${port} is already in use`))
+      } else {
+        info(`Port ${port} is in use, trying another one...`)
+        resolve(getPort(++port, isStrictPort, logger))
+      }
+    }
+
+    socket.once('connect', resolvePort)
+    socket.once('error', (exception: Error & { code: string }) => {
+      if (exception.code === 'ECONNREFUSED') {
+        rejectPort()
+      } else {
+        reject(exception)
+      }
+    })
+
+    socket.connect(port, '::')
+  })
 }
